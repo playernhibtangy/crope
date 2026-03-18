@@ -139,6 +139,14 @@
 
     <div class="divider"></div>
 
+    <!-- Cloud / API load -->
+    <div class="size-group" style="align-items: stretch; gap: 6px;">
+      <input id="apiUrlInput" class="size-input" type="text" placeholder="Telegram getFile URL or video URL" style="flex:1; min-width: 220px;">
+      <button class="ctrl-btn" id="loadUrlBtn">☁️ Load</button>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- Auto detected resolution badge -->
     <span id="resBadge">📐 No Video</span>
 
@@ -255,6 +263,18 @@ function autoDetectAndResize() {
 // ══════════════════════════════
 //  PLAYER
 // ══════════════════════════════
+function getVideoMime(url) {
+  const ext = (new URL(url, window.location.href).pathname.split('.').pop() || '').toLowerCase();
+  switch (ext) {
+    case 'mp4': return 'video/mp4';
+    case 'webm': return 'video/webm';
+    case 'ogg': return 'video/ogg';
+    case 'mov': return 'video/quicktime';
+    case 'm4v': return 'video/x-m4v';
+    default: return undefined;
+  }
+}
+
 function initPlayer(url, time = 0) {
   if (player) { player.dispose(); player = null; }
 
@@ -272,7 +292,8 @@ function initPlayer(url, time = 0) {
   }
 
   if (url) {
-    player.src({ src: url, type: "video/mp4" });
+    const type = getVideoMime(url);
+    player.src(type ? { src: url, type } : { src: url });
     player.ready(() => {
       player.currentTime(time);
       player.play().catch(() => {});
@@ -400,6 +421,50 @@ folderPicker.addEventListener("change", (e) => {
   playVideo(0);
 });
 
+// Load video from a URL (Telegram API getFile or direct video URL)
+async function loadVideoFromUrl(rawUrl) {
+  if (!rawUrl) return alert("Enter a URL first.");
+
+  let url = rawUrl.trim();
+
+  try {
+    // If it's a Telegram getFile URL return JSON with file_path.
+    if (url.includes("api.telegram.org/bot") && url.includes("getFile")) {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.ok || !data.result || !data.result.file_path) {
+        throw new Error("Invalid Telegram getFile response");
+      }
+      const filePath = data.result.file_path;
+      const botToken = url.match(/bot(\d+:[A-Za-z0-9_-]+)/)?.[1];
+      if (!botToken) throw new Error("Could not parse bot token from URL");
+      url = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+    }
+
+    // Try to load the URL as a video.
+    currentUrl = url;
+    const type = getVideoMime(url);
+    if (player) {
+      player.src(type ? { src: url, type } : { src: url });
+      player.play().catch(() => {});
+      setTimeout(autoDetectAndResize, 400);
+    } else {
+      initPlayer(url);
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Failed to load URL: " + err.message);
+  }
+}
+
+document.getElementById("loadUrlBtn").addEventListener("click", () => {
+  loadVideoFromUrl(document.getElementById("apiUrlInput").value);
+});
+
+document.getElementById("apiUrlInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") loadVideoFromUrl(e.target.value);
+});
+
 function buildPlaylist() {
   playlistEl.innerHTML = "";
   files.forEach((file, i) => {
@@ -431,7 +496,8 @@ function playVideo(i) {
   highlightActive(i);
   currentUrl = URL.createObjectURL(files[i]);
   if (player) {
-    player.src({ src: currentUrl, type: files[i].type });
+    const type = getVideoMime(currentUrl) || files[i].type;
+    player.src(type ? { src: currentUrl, type } : { src: currentUrl });
     player.play().catch(() => {});
     // Auto detect new video resolution
     setTimeout(autoDetectAndResize, 400);
