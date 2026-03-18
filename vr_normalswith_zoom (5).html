@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VR / Normal Video Player</title>
+<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+<link href="https://unpkg.com/videojs-vr/dist/videojs-vr.css" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial; background: #111; color: #fff; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ── Top Controls Bar ── */
+  .controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #1e1e1e;
+    padding: 8px 12px;
+    border-bottom: 1px solid #2a2a2a;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  .ctrl-btn {
+    padding: 7px 11px; border: none; border-radius: 5px;
+    color: #fff; cursor: pointer; font-weight: bold;
+    font-size: 12px; white-space: nowrap; background: #cc0000;
+  }
+  .ctrl-btn:hover { filter: brightness(1.3); }
+
+  #prevBtn, #nextBtn        { background: #444; }
+  #skipBackBtn, #skipFwdBtn { background: #333; }
+  #modeBtn                  { background: #0055bb; }
+  #loadBtn                  { background: #556; }
+  #applyResBtn              { background: #775500; }
+  #fitResBtn                { background: #334455; }
+
+  .divider { width: 1px; height: 26px; background: #3a3a3a; flex-shrink: 0; }
+
+  /* Size inputs */
+  .size-group { display: flex; align-items: center; gap: 4px; }
+  .size-group label { font-size: 11px; color: #aaa; white-space: nowrap; }
+  .size-input {
+    width: 58px; padding: 6px 4px; border-radius: 5px;
+    border: 1px solid #444; background: #111; color: #fff;
+    font-size: 12px; text-align: center; outline: none;
+  }
+  .size-input:focus { border-color: #0088ff; }
+  .size-sep { color: #555; font-weight: bold; }
+
+  /* Resolution badge */
+  #resBadge {
+    font-size: 11px; color: #0af;
+    background: #0a1a2a; border: 1px solid #0af;
+    border-radius: 4px; padding: 3px 7px;
+    white-space: nowrap;
+  }
+
+  /* Zoom */
+  .zoom-group { display: flex; align-items: center; gap: 4px; }
+  .zoom-group span { font-size: 11px; color: #aaa; white-space: nowrap; min-width: 50px; }
+  .zoom-btn { background: #1a5c30; padding: 6px 10px; }
+
+  /* ── Main Area ── */
+  .main-area {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Player Section ── */
+  .player-section {
+    flex: 1; display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+    overflow: hidden;
+    padding: 10px;
+  }
+
+  #video-container {
+    position: relative; background: #000;
+    border-radius: 8px; overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+    /* Size controlled by JS */
+    width: 100%; height: 100%;
+    max-width: 100%; max-height: 100%;
+    transition: width 0.2s, height 0.2s;
+  }
+
+  .video-js { width: 100% !important; height: 100% !important; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 280px; min-width: 240px;
+    background: #1a1a1a; border-left: 1px solid #333;
+    display: flex; flex-direction: column; overflow: hidden;
+    flex-shrink: 0;
+  }
+  .search-bar {
+    width: 100%; padding: 9px 10px; background: #111; color: #fff;
+    border: none; border-bottom: 1px solid #333; font-size: 13px; outline: none;
+  }
+  #playlist { flex: 1; overflow-y: auto; padding: 8px; }
+
+  .video-item {
+    display: flex; flex-direction: column; margin-bottom: 12px;
+    cursor: pointer; padding: 8px; border-radius: 8px;
+    background: #111; border: 1px solid #222; transition: 0.2s;
+  }
+  .video-item:hover { background: #232323; border-color: #555; }
+  .video-item.active { border: 2px solid #cc0000; }
+  .video-item video {
+    width: 100%; height: 140px; object-fit: cover;
+    border-radius: 5px; background: #000; pointer-events: none;
+  }
+  .video-item span {
+    display: block; margin-top: 5px; font-size: 11px;
+    color: #bbb; word-break: break-word; line-height: 1.3;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── Controls Bar (top) ── -->
+  <div class="controls-bar">
+
+    <!-- Playback -->
+    <button class="ctrl-btn" id="prevBtn">⏮</button>
+    <button class="ctrl-btn" id="skipBackBtn">⏪10s</button>
+    <button class="ctrl-btn" id="skipFwdBtn">10s⏩</button>
+    <button class="ctrl-btn" id="nextBtn">⏭</button>
+
+    <div class="divider"></div>
+
+    <button class="ctrl-btn" id="modeBtn">🔄 VR Mode</button>
+    <button class="ctrl-btn" id="loadBtn">📁 Load</button>
+    <input type="file" id="folderPicker" webkitdirectory directory multiple accept="video/mp4" style="display:none;">
+
+    <div class="divider"></div>
+
+    <!-- Auto detected resolution badge -->
+    <span id="resBadge">📐 No Video</span>
+
+    <!-- Manual override -->
+    <div class="size-group">
+      <label>W×H:</label>
+      <input class="size-input" type="number" id="inputW" placeholder="W" min="200" max="3840">
+      <span class="size-sep">×</span>
+      <input class="size-input" type="number" id="inputH" placeholder="H" min="100" max="2160">
+      <button class="ctrl-btn" id="applyResBtn">✅</button>
+      <button class="ctrl-btn" id="fitResBtn">🔲 Auto</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Zoom -->
+    <div class="zoom-group">
+      <span id="zoomLabel">🔍 100%</span>
+      <button class="ctrl-btn zoom-btn" id="zoomOutBtn">➖</button>
+      <button class="ctrl-btn zoom-btn" id="zoomResetBtn">⟳</button>
+      <button class="ctrl-btn zoom-btn" id="zoomInBtn">➕</button>
+    </div>
+
+  </div>
+
+  <!-- ── Main Area ── -->
+  <div class="main-area">
+
+    <div class="player-section">
+      <div id="video-container"></div>
+    </div>
+
+    <div class="sidebar">
+      <input type="text" id="search" class="search-bar" placeholder="🔍 Search...">
+      <div id="playlist"></div>
+    </div>
+
+  </div>
+
+<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+<script src="https://unpkg.com/videojs-vr/dist/videojs-vr.min.js"></script>
+<script>
+
+let player       = null;
+let isVR         = true;
+let files        = [];
+let currentIndex = 0;
+let currentUrl   = null;
+let autoMode     = true; // true = auto detect video resolution
+
+let zoomLevel   = 1.0;
+const ZOOM_STEP = 0.1;
+const ZOOM_MIN  = 0.3;
+const ZOOM_MAX  = 3.0;
+
+const videoContainer = document.getElementById("video-container");
+const playlistEl     = document.getElementById("playlist");
+const folderPicker   = document.getElementById("folderPicker");
+const modeBtn        = document.getElementById("modeBtn");
+const zoomLabelEl    = document.getElementById("zoomLabel");
+const resBadge       = document.getElementById("resBadge");
+const inputW         = document.getElementById("inputW");
+const inputH         = document.getElementById("inputH");
+
+
+// ══════════════════════════════
+//  AUTO RESOLUTION DETECTION
+//  Reads actual video width/height and resizes container
+// ══════════════════════════════
+function autoDetectAndResize() {
+  if (!autoMode) return;
+
+  const vid = videoContainer.querySelector("video");
+  if (!vid) return;
+
+  const checkRes = () => {
+    const vw = vid.videoWidth;
+    const vh = vid.videoHeight;
+    if (!vw || !vh) return; // not loaded yet
+
+    // Update badge
+    resBadge.textContent = `📐 ${vw} × ${vh}`;
+    inputW.value = vw;
+    inputH.value = vh;
+
+    // Fit inside available player area keeping aspect ratio
+    const section  = document.querySelector(".player-section");
+    const maxW = section.clientWidth  - 20;
+    const maxH = section.clientHeight - 20;
+
+    const ratio = vw / vh;
+    let fitW = maxW;
+    let fitH = fitW / ratio;
+
+    if (fitH > maxH) {
+      fitH = maxH;
+      fitW = fitH * ratio;
+    }
+
+    videoContainer.style.width     = Math.floor(fitW) + "px";
+    videoContainer.style.height    = Math.floor(fitH) + "px";
+    videoContainer.style.maxWidth  = "100%";
+    videoContainer.style.maxHeight = "100%";
+  };
+
+  // Try immediately, then on loadedmetadata
+  if (vid.readyState >= 1) {
+    checkRes();
+  }
+  vid.addEventListener("loadedmetadata", checkRes, { once: true });
+}
+
+
+// ══════════════════════════════
+//  PLAYER
+// ══════════════════════════════
+function initPlayer(url, time = 0) {
+  if (player) { player.dispose(); player = null; }
+
+  videoContainer.innerHTML = `
+    <video id="player" class="video-js vjs-default-skin vjs-big-play-centered"
+      controls crossorigin="anonymous" playsinline></video>`;
+
+  player = videojs("player");
+
+  if (isVR) {
+    player.vr({ projection: "360", motionControls: true });
+    modeBtn.textContent = "🔄 Normal Mode";
+  } else {
+    modeBtn.textContent = "🔄 VR 360° Mode";
+  }
+
+  if (url) {
+    player.src({ src: url, type: "video/mp4" });
+    player.ready(() => {
+      player.currentTime(time);
+      player.play().catch(() => {});
+      // Auto detect after src is set
+      setTimeout(autoDetectAndResize, 400);
+    });
+  }
+
+  player.on("ended", () => {
+    currentIndex = (currentIndex + 1) % files.length;
+    playVideo(currentIndex);
+  });
+}
+
+initPlayer(null);
+
+modeBtn.addEventListener("click", () => {
+  isVR = !isVR;
+  const t = player ? player.currentTime() : 0;
+  initPlayer(currentUrl, t);
+});
+
+
+// ══════════════════════════════
+//  ZOOM
+// ══════════════════════════════
+function applyZoom() {
+  if (isVR && player) {
+    try {
+      player.vr().camera.fov = 75 / zoomLevel;
+      player.vr().camera.updateProjectionMatrix();
+    } catch (e) {
+      const c = videoContainer.querySelector("canvas");
+      if (c) c.style.transform = `scale(${zoomLevel})`;
+    }
+  } else {
+    const v = videoContainer.querySelector("video");
+    if (v) v.style.transform = `scale(${zoomLevel})`;
+  }
+  zoomLabelEl.textContent = `🔍 ${Math.round(zoomLevel * 100)}%`;
+}
+
+document.getElementById("zoomInBtn").addEventListener("click", () => {
+  zoomLevel = Math.min(ZOOM_MAX, +(zoomLevel + ZOOM_STEP).toFixed(2));
+  applyZoom();
+});
+document.getElementById("zoomOutBtn").addEventListener("click", () => {
+  zoomLevel = Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2));
+  applyZoom();
+});
+document.getElementById("zoomResetBtn").addEventListener("click", () => {
+  zoomLevel = 1.0; applyZoom();
+});
+
+videoContainer.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  zoomLevel = e.deltaY < 0
+    ? Math.min(ZOOM_MAX, +(zoomLevel + ZOOM_STEP).toFixed(2))
+    : Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2));
+  applyZoom();
+}, { passive: false });
+
+
+// ══════════════════════════════
+//  MANUAL FRAME SIZE OVERRIDE
+// ══════════════════════════════
+function applyCustomSize() {
+  const w = parseInt(inputW.value);
+  const h = parseInt(inputH.value);
+  if (!w || !h || w < 200 || h < 100) {
+    alert("Sahi size daalo! Min: 200×100");
+    return;
+  }
+  autoMode = false; // stop auto override
+  resBadge.textContent = `📐 ${w} × ${h} (manual)`;
+  videoContainer.style.width     = w + "px";
+  videoContainer.style.height    = h + "px";
+  videoContainer.style.maxWidth  = "100%";
+  videoContainer.style.maxHeight = "100%";
+}
+
+function resetToAuto() {
+  autoMode = true;
+  inputW.value = "";
+  inputH.value = "";
+  autoDetectAndResize(); // re-detect current video
+}
+
+document.getElementById("applyResBtn").addEventListener("click", applyCustomSize);
+document.getElementById("fitResBtn").addEventListener("click", resetToAuto);
+inputW.addEventListener("keydown", (e) => { if (e.key === "Enter") applyCustomSize(); });
+inputH.addEventListener("keydown", (e) => { if (e.key === "Enter") applyCustomSize(); });
+
+
+// ══════════════════════════════
+//  SKIP / PREV / NEXT
+// ══════════════════════════════
+document.getElementById("prevBtn").addEventListener("click", () => {
+  if (!files.length) return;
+  currentIndex = (currentIndex - 1 + files.length) % files.length;
+  playVideo(currentIndex);
+});
+document.getElementById("nextBtn").addEventListener("click", () => {
+  if (!files.length) return;
+  currentIndex = (currentIndex + 1) % files.length;
+  playVideo(currentIndex);
+});
+document.getElementById("skipBackBtn").addEventListener("click", () => {
+  if (player) player.currentTime(Math.max(0, player.currentTime() - 10));
+});
+document.getElementById("skipFwdBtn").addEventListener("click", () => {
+  if (player) player.currentTime(Math.min(player.duration() || 0, player.currentTime() + 10));
+});
+
+
+// ══════════════════════════════
+//  FOLDER & PLAYLIST
+// ══════════════════════════════
+document.getElementById("loadBtn").addEventListener("click", () => folderPicker.click());
+
+folderPicker.addEventListener("change", (e) => {
+  files = Array.from(e.target.files).filter(f => f.type.startsWith("video/"));
+  if (!files.length) return alert("No video files found!");
+  buildPlaylist();
+  playVideo(0);
+});
+
+function buildPlaylist() {
+  playlistEl.innerHTML = "";
+  files.forEach((file, i) => {
+    const item = document.createElement("div");
+    item.className = "video-item";
+
+    const prev = document.createElement("video");
+    prev.src   = URL.createObjectURL(file);
+    prev.muted = true;
+    prev.loop  = true;
+
+    item.addEventListener("mouseenter", () => prev.play().catch(() => {}));
+    item.addEventListener("mouseleave", () => { prev.pause(); prev.currentTime = 0; });
+
+    const lbl = document.createElement("span");
+    lbl.textContent = `${i + 1}. ${file.name}`;
+
+    item.appendChild(prev);
+    item.appendChild(lbl);
+    playlistEl.appendChild(item);
+    item.addEventListener("click", () => playVideo(i));
+  });
+  highlightActive(0);
+}
+
+function playVideo(i) {
+  if (!files[i]) return;
+  currentIndex = i;
+  highlightActive(i);
+  currentUrl = URL.createObjectURL(files[i]);
+  if (player) {
+    player.src({ src: currentUrl, type: files[i].type });
+    player.play().catch(() => {});
+    // Auto detect new video resolution
+    setTimeout(autoDetectAndResize, 400);
+  } else {
+    initPlayer(currentUrl);
+  }
+}
+
+function highlightActive(i) {
+  document.querySelectorAll(".video-item").forEach((el, idx) => {
+    el.classList.toggle("active", idx === i);
+  });
+  const activeEl = document.querySelectorAll(".video-item")[i];
+  if (activeEl) activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+// Window resize — re-fit
+window.addEventListener("resize", () => {
+  if (autoMode) autoDetectAndResize();
+});
+
+// ══════════════════════════════
+//  SEARCH
+// ══════════════════════════════
+document.getElementById("search").addEventListener("input", (e) => {
+  const term = e.target.value.toLowerCase();
+  document.querySelectorAll(".video-item").forEach(item => {
+    item.style.display = item.innerText.toLowerCase().includes(term) ? "flex" : "none";
+  });
+});
+
+</script>
+</body>
+</html>
